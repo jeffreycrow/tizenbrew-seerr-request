@@ -1,0 +1,22 @@
+{
+  "name": "tizenbrew-seerr-request",
+  "version": "0.1.0",
+  "description": "Search Seerr and request movies/TV from a Samsung TV (TizenBrew module).",
+  "packageType": "app",
+  "appName": "Seerr Request",
+  "appPath": "app/index.html",
+  "serviceFile": "service.js",
+  "keys": ["ColorF0Red"],
+  "evaluateScriptOnDocumentStart": false,
+  "files": ["app", "service.js"],
+  "license": "MIT",
+  "scripts": {
+    "test": "node --test test/",
+    "vendor": "esbuild node_modules/@noriginmedia/norigin-spatial-navigation-core/dist/index.mjs --bundle --minify --format=iife --global-name=NoriginNav --target=es2017 --outfile=app/js/vendor/norigin.js",
+    "mock": "node scripts/mock-seerr.js"
+  },
+  "devDependencies": {
+    "@noriginmedia/norigin-spatial-navigation-core": "4.1.2",
+    "esbuild": "^0.25.0"
+  }
+}
