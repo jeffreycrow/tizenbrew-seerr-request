@@ -6,8 +6,8 @@ Search [Seerr](https://docs.seerr.dev) from your Samsung TV remote and request m
 
 TizenBrew loads modules from jsDelivr, so the module must be public first:
 
-1. Push this repo to a public GitHub repo and create a version tag, e.g. `git tag v0.3.3 && git push --tags`.
-2. In TizenBrew add the module as `gh/<user>/<repo>` (or `gh/<user>/<repo>@v0.3.3` to pin the tag; jsDelivr caches branch refs for hours, a tag avoids stale files). An npm package works too: `npm/<package>`.
+1. Push this repo to a public GitHub repo and create a version tag, e.g. `git tag v0.4.0 && git push --tags`.
+2. In TizenBrew add the module as `gh/<user>/<repo>` (or `gh/<user>/<repo>@v0.4.0` to pin the tag; jsDelivr caches branch refs for hours, a tag avoids stale files). An npm package works too: `npm/<package>`.
 3. Launch **Seerr Request**. TizenBrew starts the module's service (`service.js`) automatically.
 
 If the service crashed, TizenBrew's module settings show the service status and error.
@@ -36,7 +36,7 @@ If the TV's service is not running (or you prefer), type the URL and key with th
 | Back | Close detail, otherwise exit |
 | Red | Settings |
 
-Search is automatic (about 0.4 s after you stop typing). Select a title, pick seasons for TV (all by default), then **Request**.
+Search is automatic (about 0.4 s after you stop typing). **Popular only** (top of the results, on by default) hides obscure entries with very few votes and ranks the rest by votes; turn it off to see everything Seerr returns. Cards show the rating and vote count. Select a title, pick seasons for TV (all by default), then **Request**.
 
 ## Development (desktop)
 

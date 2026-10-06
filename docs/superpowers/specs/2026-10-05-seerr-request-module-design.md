@@ -73,3 +73,9 @@ A TizenBrew **app** module (`packageType: "app"`) that lets the user search Seer
 ## Addendum (2026-10-06): redirects in the proxy
 
 A user's Seerr URL answered `307`; the proxy neither followed nor forwarded `Location`, so the page showed "Seerr returned an error (307)". The proxy now buffers the request body (≤ 64 KB) and follows `301/302/307/308` (same method and body) and `303` (becomes GET) up to 5 hops, **only within the same hostname** (scheme and port may change, e.g. http→https) so the API key never leaves the Seerr host. A redirect to a different host, a loop, or an unusable `Location` returns `502` with a JSON message (for example "Seerr redirected to a different address (https://…). Use that URL instead."), which the page now shows. A redirect status without `Location` is relayed unchanged. This supersedes "redirects not supported" in the proxy addendum.
+
+## Addendum (2026-10-06): fixed keyboard and result quality
+
+- **Layout:** the keyboard panel never scrolls with the results; only the results grid scrolls (`#app`, `.screen`, `.panel-right`, `.results` constrained to the 1080 px height). Verified at a 1920×1080 viewport.
+- **Ranking:** Seerr's search (TMDB multi-search) returns many obscure entries. Each result now carries `popularity` and `voteCount`. A **Popular only** switch (default ON, toggled from the search screen) hides results with fewer than 50 votes unless their popularity is at least 20 (new releases), and orders what remains by vote count, then popularity. OFF shows everything in Seerr's own order. The toggle shows how many results are hidden; cards show `★ rating (votes)`.
+- Limits: only the first page (20 results) of Seerr's search is requested, so a popular match that ranks past page 1 is not shown; the switch state is per session.

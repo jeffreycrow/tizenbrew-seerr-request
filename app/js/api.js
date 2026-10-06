@@ -52,7 +52,9 @@
       posterUrl: r.posterPath ? IMG + r.posterPath : null,
       overview: r.overview || '',
       rating: r.voteAverage || 0,
-      status: (r.mediaInfo && r.mediaInfo.status) || 0
+      status: (r.mediaInfo && r.mediaInfo.status) || 0,
+      popularity: r.popularity || 0,
+      voteCount: r.voteCount || 0
     };
   }
 
@@ -124,7 +126,8 @@
           var item = toItem({
             id: data.id, mediaType: mediaType, title: data.title, name: data.name,
             releaseDate: data.releaseDate, firstAirDate: data.firstAirDate, posterPath: data.posterPath,
-            overview: data.overview, voteAverage: data.voteAverage, mediaInfo: data.mediaInfo
+            overview: data.overview, voteAverage: data.voteAverage, mediaInfo: data.mediaInfo,
+            popularity: data.popularity, voteCount: data.voteCount
           });
           if (mediaType === 'tv') {
             item.seasons = (data.seasons || [])
@@ -150,6 +153,37 @@
         return request('POST', '/request', body);
       }
     };
+  }
+
+  // Search results from TMDB carry plenty of noise (0-30 vote entries). Real titles have hundreds+ votes;
+  // brand-new releases have few votes but high popularity, so keep those too.
+  var MIN_VOTES = 50;
+  var HOT_POPULARITY = 20;
+
+  // popularOnly: drop low-vote/low-popularity noise and order by votes (then popularity).
+  // Otherwise: everything, in Seerr's own order. Never mutates its input.
+  function rankResults(items, opts) {
+    if (!(opts && opts.popularOnly)) return { items: items.slice(), hidden: 0 };
+    var kept = [];
+    items.forEach(function (x, i) {
+      var v = x.voteCount || 0;
+      var p = x.popularity || 0;
+      if (v >= MIN_VOTES || p >= HOT_POPULARITY) kept.push({ x: x, i: i, v: v, p: p });
+    });
+    // explicit index tie-break: Array.prototype.sort is not stable on older Chromium
+    kept.sort(function (a, b) { return (b.v - a.v) || (b.p - a.p) || (a.i - b.i); });
+    return { items: kept.map(function (k) { return k.x; }), hidden: items.length - kept.length };
+  }
+
+  function compactCount(n) {
+    n = Number(n) || 0;
+    if (n < 1000) return String(Math.round(n));
+    if (n < 1000000) {
+      var k = n / 1000;
+      if (k < 10) return String(Math.round(n / 100) / 10).replace(/\.0$/, '') + 'k';
+      if (Math.round(k) < 1000) return Math.round(k) + 'k';
+    }
+    return String(Math.round(n / 100000) / 10).replace(/\.0$/, '') + 'M';
   }
 
   function probeProxy(proxyUrl, opts) {
@@ -219,6 +253,7 @@
   return {
     STATUS: STATUS, ApiError: ApiError, normalizeBase: normalizeBase,
     createClient: createClient, probeProxy: probeProxy, statusLabel: statusLabel, canRequest: canRequest,
-    startPairing: startPairing, pollPairing: pollPairing, cancelPairing: cancelPairing, waitForPairing: waitForPairing
+    startPairing: startPairing, pollPairing: pollPairing, cancelPairing: cancelPairing, waitForPairing: waitForPairing,
+    rankResults: rankResults, compactCount: compactCount, MIN_VOTES: MIN_VOTES, HOT_POPULARITY: HOT_POPULARITY
   };
 });

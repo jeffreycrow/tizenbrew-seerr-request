@@ -55,7 +55,7 @@ test('search drops people and maps fields', async () => {
   ] }));
   const items = await client(f).search('x');
   assert.equal(items.length, 2);
-  assert.deepEqual(items[0], { id: 603, mediaType: 'movie', title: 'The Matrix', year: '1999', posterUrl: 'https://image.tmdb.org/t/p/w342/m.jpg', overview: 'o', rating: 8.2, status: 5 });
+  assert.deepEqual(items[0], { id: 603, mediaType: 'movie', title: 'The Matrix', year: '1999', posterUrl: 'https://image.tmdb.org/t/p/w342/m.jpg', overview: 'o', rating: 8.2, status: 5, popularity: 0, voteCount: 0 });
   assert.equal(items[1].title, 'Breaking Bad');
   assert.equal(items[1].year, '2008');
   assert.equal(items[1].posterUrl, null);
@@ -140,4 +140,16 @@ test('statusLabel and canRequest', () => {
   assert.equal(statusLabel(0), '');
   assert.equal(statusLabel(1), '');
   assert.deepEqual([0, 1, 2, 3, 4, 5].map(canRequest), [true, true, false, false, true, false]);
+});
+
+test('search maps popularity and voteCount (missing become 0)', async () => {
+  const f = fakeFetch(() => ok({ results: [
+    { id: 1, mediaType: 'movie', title: 'A', popularity: 53.5181, voteCount: 28883 },
+    { id: 2, mediaType: 'tv', name: 'B' }
+  ] }));
+  const items = await client(f).search('x');
+  assert.equal(items[0].popularity, 53.5181);
+  assert.equal(items[0].voteCount, 28883);
+  assert.equal(items[1].popularity, 0);
+  assert.equal(items[1].voteCount, 0);
 });
