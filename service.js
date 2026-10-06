@@ -231,6 +231,11 @@ function defaultPairing() {
   return sharedPairing;
 }
 
+// A redirect may upgrade http to https, but never downgrade https to http (the API key would go out in cleartext).
+function followDecision(fromProtocol, toProtocol) {
+  return !(fromProtocol === 'https:' && toProtocol === 'http:');
+}
+
 function createProxyServer(opts) {
   var timeoutMs = (opts && opts.timeoutMs) || 30000;
   var pairing = (opts && opts.pairing) || defaultPairing();
@@ -312,6 +317,9 @@ function createProxyServer(opts) {
       if (String(next.hostname).toLowerCase() !== origHost) {
         return fail('Seerr redirected to a different address (' + next.protocol + '//' + next.hostname + (next.port ? ':' + next.port : '') + '). Use that URL instead.');
       }
+      if (!followDecision(from.protocol, next.protocol)) {
+        return fail('Seerr redirected from HTTPS to HTTP, which is not allowed because it would send your API key unencrypted.');
+      }
       var nextMethod = method;
       var nextBody = body;
       if (code === 303 && method !== 'GET') { nextMethod = 'GET'; nextBody = emptyBody(); }
@@ -387,7 +395,7 @@ function start() {
 }
 
 module.exports = {
-  createProxyServer: createProxyServer, createPairing: createPairing, start: start,
+  createProxyServer: createProxyServer, createPairing: createPairing, followDecision: followDecision, start: start,
   PORT: PORT, HOST: HOST, SETUP_PORT: SETUP_PORT
 };
 

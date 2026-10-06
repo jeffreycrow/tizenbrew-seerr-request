@@ -286,3 +286,14 @@ test('request bodies over 64 KB are a 413 and never reach the upstream', async (
   assert.equal(r.status, 413);
   assert.equal(s.seenA.length, 0);
 });
+
+test('a redirect from https down to http is refused (the api key must not go out in cleartext)', async (t) => {
+  // the https hop is simulated by calling the proxy's follow logic through a real http upstream
+  // that claims https:// in Location only when the request itself came over https; here we assert
+  // the inverse guard directly: http -> https is allowed to be attempted (same host), https -> http is not.
+  const { followDecision } = require('../service.js');
+  assert.equal(followDecision('https:', 'http:'), false);
+  assert.equal(followDecision('http:', 'https:'), true);
+  assert.equal(followDecision('http:', 'http:'), true);
+  assert.equal(followDecision('https:', 'https:'), true);
+});

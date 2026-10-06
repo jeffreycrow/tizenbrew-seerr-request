@@ -6,15 +6,15 @@ Search [Seerr](https://docs.seerr.dev) from your Samsung TV remote and request m
 
 TizenBrew loads modules from jsDelivr, so the module must be public first:
 
-1. Push this repo to a public GitHub repo and create a version tag, e.g. `git tag v0.3.2 && git push --tags`.
-2. In TizenBrew add the module as `gh/<user>/<repo>` (or `gh/<user>/<repo>@v0.3.2` to pin the tag; jsDelivr caches branch refs for hours, a tag avoids stale files). An npm package works too: `npm/<package>`.
+1. Push this repo to a public GitHub repo and create a version tag, e.g. `git tag v0.3.3 && git push --tags`.
+2. In TizenBrew add the module as `gh/<user>/<repo>` (or `gh/<user>/<repo>@v0.3.3` to pin the tag; jsDelivr caches branch refs for hours, a tag avoids stale files). An npm package works too: `npm/<package>`.
 3. Launch **Seerr Request**. TizenBrew starts the module's service (`service.js`) automatically.
 
 If the service crashed, TizenBrew's module settings show the service status and error.
 
 ## How it talks to Seerr
 
-Seerr sends no CORS headers, so a web page on the TV cannot call it directly. `service.js` runs on the TV as a tiny proxy on `127.0.0.1:8765` (loopback only, `/api/v1` paths only, GET/POST only). The page checks `http://127.0.0.1:8765/health` at startup and uses the proxy when it answers; otherwise it calls Seerr directly (desktop development, or a Seerr behind a reverse proxy that adds CORS headers). The API key is stored on the TV and sent only to your Seerr through the proxy. The proxy follows redirects within the same host (for example http to https). If your Seerr redirects to a different address, the app shows that address so you can use it instead. Self-signed HTTPS certificates are not supported. Calls time out after 30 s.
+Seerr sends no CORS headers, so a web page on the TV cannot call it directly. `service.js` runs on the TV as a tiny proxy on `127.0.0.1:8765` (loopback only, `/api/v1` paths only, GET/POST only). The page checks `http://127.0.0.1:8765/health` at startup and uses the proxy when it answers; otherwise it calls Seerr directly (desktop development, or a Seerr behind a reverse proxy that adds CORS headers). The API key is stored on the TV and sent only to your Seerr through the proxy. The proxy follows redirects within the same host (for example http to https; never https down to http). If your Seerr redirects to a different address, the app shows that address so you can use it instead. Self-signed HTTPS certificates are not supported. Calls time out after 30 s.
 
 ## First run
 
