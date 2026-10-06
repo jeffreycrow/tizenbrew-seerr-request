@@ -172,8 +172,46 @@
     return attempt(1);
   }
 
+  // ---- phone pairing (talks to the loopback setup API of the local service) ----
+
+  function pairingCall(proxyUrl, method, path, opts) {
+    var doFetch = (opts && opts.fetch) || function (u, o) { return fetch(u, o); };
+    // no custom headers: keeps these simple CORS requests (no preflight)
+    return doFetch(String(proxyUrl).replace(/\/+$/, '') + path, { method: method }).then(function (res) {
+      if (!res.ok) throw new ApiError('http', 'Phone setup is not available (' + res.status + ').', res.status);
+      return res.json();
+    }, function () {
+      throw new ApiError('network', 'Cannot reach the TV service.');
+    });
+  }
+
+  function startPairing(proxyUrl, opts) { return pairingCall(proxyUrl, 'POST', '/setup/start', opts); }
+  function pollPairing(proxyUrl, opts) { return pairingCall(proxyUrl, 'GET', '/setup/poll', opts); }
+  function cancelPairing(proxyUrl, opts) { return pairingCall(proxyUrl, 'POST', '/setup/cancel', opts); }
+
+  // Resolves {baseUrl, apiKey} when the phone submits, or null on expiry/cancel/stop/timeout.
+  function waitForPairing(proxyUrl, opts) {
+    opts = opts || {};
+    var interval = opts.intervalMs === undefined ? 1500 : opts.intervalMs;
+    var deadline = Date.now() + (opts.timeoutMs || 600000);
+
+    function later() {
+      return new Promise(function (r) { setTimeout(r, interval); }).then(step);
+    }
+    function step() {
+      if ((opts.shouldStop && opts.shouldStop()) || Date.now() > deadline) return Promise.resolve(null);
+      return pollPairing(proxyUrl, opts).then(function (r) {
+        if (r && r.status === 'done') return { baseUrl: r.baseUrl, apiKey: r.apiKey };
+        if (r && r.status === 'idle') return null;
+        return later();
+      }, later);
+    }
+    return step();
+  }
+
   return {
     STATUS: STATUS, ApiError: ApiError, normalizeBase: normalizeBase,
-    createClient: createClient, probeProxy: probeProxy, statusLabel: statusLabel, canRequest: canRequest
+    createClient: createClient, probeProxy: probeProxy, statusLabel: statusLabel, canRequest: canRequest,
+    startPairing: startPairing, pollPairing: pollPairing, cancelPairing: cancelPairing, waitForPairing: waitForPairing
   };
 });
