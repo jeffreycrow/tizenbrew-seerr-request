@@ -11,7 +11,7 @@
   "files": ["app", "service.js"],
   "license": "MIT",
   "scripts": {
-    "test": "node --test test/",
+    "test": "node --test --test-force-exit test/",
     "vendor": "esbuild node_modules/@noriginmedia/norigin-spatial-navigation-core/dist/index.mjs --bundle --minify --format=iife --global-name=NoriginNav --target=es2017 --outfile=app/js/vendor/norigin.js",
     "mock": "node scripts/mock-seerr.js"
   },
