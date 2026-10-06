@@ -57,3 +57,14 @@ A TizenBrew **app** module (`packageType: "app"`) that lets the user search Seer
 - Guards: only `api/v1/` paths (no `..`), only `http:`/`https:` base URLs, only GET/POST; upstream failure → 502, timeout (15 s) → 504, both JSON with CORS headers.
 - The page probes `/health` at startup (retrying while the service starts on a TV). If the proxy answers, all Seerr calls go through it; otherwise direct mode (desktop dev, or a Seerr that already sends CORS headers).
 - Not supported (YAGNI): self-signed HTTPS upstreams, redirects.
+
+## Addendum (2026-10-06): phone pairing for URL + API key
+
+**Why:** A Seerr API key is ~60 characters; typing it with a D-pad keyboard is impractical.
+
+**Design:** The setup screen gets a **Set up from phone** button (only when the local proxy is detected; the on-screen keyboard stays as a fallback).
+- Page → loopback API on the existing proxy (`127.0.0.1:8765`): `POST /setup/start` → `{pin, port, addresses[]}`; `GET /setup/poll` → `{status:'waiting'}` | `{status:'done', baseUrl, apiKey}` (returned once, then cleared) | `{status:'idle'}`; `POST /setup/cancel`. These are simple CORS requests (no preflight).
+- `start` opens a short-lived **pairing server** on `0.0.0.0:8766`: `GET /` serves a mobile form (Seerr URL, API key, PIN); `POST /submit` (form-encoded, body ≤ 8 KB) checks the 4-digit PIN (random, 5 wrong attempts closes pairing), validates the URL (`http(s)`, valid host/port) and a non-empty key (≤ 512 chars), stores the config in memory. Pairing closes on first successful `poll`, on `cancel`, on lockout, or after 10 minutes.
+- The TV shows the phone URL(s) (from the TV's non-internal IPv4 interfaces) and the PIN, polls `/setup/poll`, then validates with `GET /auth/me` and saves exactly as manual entry does.
+- Trade-offs: the key crosses the LAN once over plain HTTP; PIN + attempt limit + one-shot + 10-minute window limit LAN drive-by use. Whether TizenBrew's service sandbox may bind a LAN port is unverified until tested on the TV.
+- Out of scope: QR codes, HTTPS for the pairing page, mDNS names.
