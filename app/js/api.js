@@ -1,0 +1,148 @@
+(function (root, factory) {
+  if (typeof module === 'object' && module.exports) { module.exports = factory(); }
+  else { (root.SR = root.SR || {}).api = factory(); }
+})(this, function () {
+  var STATUS = { UNKNOWN: 1, PENDING: 2, PROCESSING: 3, PARTIAL: 4, AVAILABLE: 5 };
+  var IMG = 'https://image.tmdb.org/t/p/w342';
+
+  function ApiError(kind, message, status) {
+    this.name = 'ApiError';
+    this.kind = kind;
+    this.message = message;
+    this.status = status || 0;
+  }
+  ApiError.prototype = Object.create(Error.prototype);
+  ApiError.prototype.constructor = ApiError;
+
+  function httpError(status) {
+    if (status === 401 || status === 403) return new ApiError('auth', 'Seerr rejected the API key.', status);
+    if (status === 404) return new ApiError('notfound', 'Not found on Seerr.', status);
+    if (status === 409) return new ApiError('conflict', 'Already requested.', status);
+    return new ApiError('http', 'Seerr returned an error (' + status + ').', status);
+  }
+
+  function normalizeBase(url) {
+    var u = String(url || '').trim();
+    if (!/^https?:\/\//i.test(u)) u = 'http://' + u;
+    u = u.replace(/\/+$/, '');
+    u = u.replace(/\/api\/v1$/, '');
+    return u.replace(/\/+$/, '');
+  }
+
+  function statusLabel(code) {
+    if (code === STATUS.PENDING) return 'Requested';
+    if (code === STATUS.PROCESSING) return 'Processing';
+    if (code === STATUS.PARTIAL) return 'Partially available';
+    if (code === STATUS.AVAILABLE) return 'Available';
+    return '';
+  }
+
+  function canRequest(code) {
+    return code !== STATUS.PENDING && code !== STATUS.PROCESSING && code !== STATUS.AVAILABLE;
+  }
+
+  function toItem(r) {
+    var date = r.releaseDate || r.firstAirDate || '';
+    return {
+      id: r.id,
+      mediaType: r.mediaType,
+      title: r.title || r.name || '',
+      year: String(date).slice(0, 4),
+      posterUrl: r.posterPath ? IMG + r.posterPath : null,
+      overview: r.overview || '',
+      rating: r.voteAverage || 0,
+      status: (r.mediaInfo && r.mediaInfo.status) || 0
+    };
+  }
+
+  function createClient(cfg) {
+    var base = normalizeBase(cfg.baseUrl) + '/api/v1';
+    var key = String(cfg.apiKey || '').trim();
+    var timeoutMs = cfg.timeoutMs || 10000;
+    var doFetch = cfg.fetch || function (u, o) { return fetch(u, o); };
+
+    function request(method, path, body) {
+      var init = { method: method, headers: { 'X-Api-Key': key, 'Accept': 'application/json' } };
+      if (body !== undefined) {
+        init.headers['Content-Type'] = 'application/json';
+        init.body = JSON.stringify(body);
+      }
+      var timer;
+      var timeout = new Promise(function (resolve, reject) {
+        timer = setTimeout(function () { reject(new ApiError('timeout', 'Seerr did not respond in time.')); }, timeoutMs);
+      });
+      var call = doFetch(base + path, init).then(function (res) {
+        if (!res.ok) throw httpError(res.status);
+        if (res.status === 204) return null;
+        return res.json().catch(function () {
+          throw new ApiError('parse', 'Unexpected response. Is this a Seerr URL?');
+        });
+      }, function () {
+        throw new ApiError('network', 'Cannot reach Seerr. Check the URL and network.');
+      });
+      return Promise.race([call, timeout]).then(
+        function (v) { clearTimeout(timer); return v; },
+        function (e) { clearTimeout(timer); throw e; }
+      );
+    }
+
+    function checkType(mediaType) {
+      if (mediaType !== 'movie' && mediaType !== 'tv') {
+        return Promise.reject(new ApiError('http', 'Unsupported media type.'));
+      }
+      return null;
+    }
+
+    return {
+      getMe: function () { return request('GET', '/auth/me'); },
+
+      search: function (query, page) {
+        var q = String(query || '').trim();
+        if (!q) return Promise.resolve([]);
+        return request('GET', '/search?query=' + encodeURIComponent(q) + '&page=' + (page || 1)).then(function (data) {
+          return ((data && data.results) || [])
+            .filter(function (r) { return r.mediaType === 'movie' || r.mediaType === 'tv'; })
+            .map(toItem);
+        });
+      },
+
+      getDetail: function (mediaType, id) {
+        var bad = checkType(mediaType);
+        if (bad) return bad;
+        return request('GET', '/' + mediaType + '/' + encodeURIComponent(id)).then(function (data) {
+          var item = toItem({
+            id: data.id, mediaType: mediaType, title: data.title, name: data.name,
+            releaseDate: data.releaseDate, firstAirDate: data.firstAirDate, posterPath: data.posterPath,
+            overview: data.overview, voteAverage: data.voteAverage, mediaInfo: data.mediaInfo
+          });
+          if (mediaType === 'tv') {
+            item.seasons = (data.seasons || [])
+              .filter(function (s) { return s.seasonNumber > 0; })
+              .map(function (s) {
+                return { number: s.seasonNumber, name: s.name || ('Season ' + s.seasonNumber), episodeCount: s.episodeCount || 0 };
+              });
+          }
+          return item;
+        });
+      },
+
+      requestMedia: function (mediaType, id, seasons) {
+        var bad = checkType(mediaType);
+        if (bad) return bad;
+        var body = { mediaType: mediaType, mediaId: id };
+        if (mediaType === 'tv') {
+          if (!seasons || !seasons.length) {
+            return Promise.reject(new ApiError('http', 'Select at least one season.'));
+          }
+          body.seasons = seasons;
+        }
+        return request('POST', '/request', body);
+      }
+    };
+  }
+
+  return {
+    STATUS: STATUS, ApiError: ApiError, normalizeBase: normalizeBase,
+    createClient: createClient, statusLabel: statusLabel, canRequest: canRequest
+  };
+});
