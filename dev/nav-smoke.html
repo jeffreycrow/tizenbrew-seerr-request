@@ -1,0 +1,16 @@
+<!doctype html><meta charset="utf-8"><title>nav smoke</title>
+<style>.t{display:inline-block;width:80px;height:80px;margin:8px;background:#ccc}.focused{outline:4px solid red}</style>
+<div id="g"></div><div id="out"></div>
+<script src="../app/js/vendor/norigin.js"></script>
+<script src="../app/js/nav.js"></script>
+<script>
+  SR.nav.init();
+  var g = SR.nav.group(), els = [];
+  for (var i = 0; i < 6; i++) {
+    var d = document.createElement('div'); d.className = 't'; d.textContent = i;
+    document.getElementById('g').appendChild(d);
+    (function (n, el) { g.add(el, { onEnter: function () { document.getElementById('out').textContent = 'enter ' + n; } }); })(i, d);
+    els.push(d);
+  }
+  SR.nav.focusEl(els[0]);
+</script>
