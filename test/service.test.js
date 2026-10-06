@@ -170,3 +170,14 @@ test('service.js uses only Node-4-compatible syntax', () => {
 test('requiring service.js with SR_NO_START does not listen', () => {
   assert.equal(typeof createProxyServer, 'function');
 });
+
+test('malformed upstream URLs never crash the service (bad port is a 400, server stays up)', async (t) => {
+  const s = await setup(t, (req, res) => json(res, 200, {}));
+  for (const v of ['http://127.0.0.1:99999', 'http://127.0.0.1:0', 'http://127.0.0.1:-1', 'http://127.0.0.1:abc', 'http://exa mple.com', 'http://[::1']) {
+    const r = await call(s.port, { path: '/proxy/api/v1/status', headers: { 'X-Seerr-Url': v, 'X-Api-Key': 'K' } });
+    assert.ok(r.status === 400 || r.status === 502, v + ' -> ' + r.status);
+    assert.equal(r.headers['access-control-allow-origin'], '*');
+  }
+  const health = await call(s.port, { path: '/health' });
+  assert.equal(health.status, 200);
+});

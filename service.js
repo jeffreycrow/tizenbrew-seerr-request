@@ -27,8 +27,10 @@ function sendJson(res, code, obj) {
 
 function parseBase(value) {
   var s = String(value || '').trim().replace(/\/+$/, '');
-  var u = urlLib.parse(s);
+  var u;
+  try { u = urlLib.parse(s); } catch (e) { return null; }
   if ((u.protocol !== 'http:' && u.protocol !== 'https:') || !u.hostname) return null;
+  if (u.port && !(/^\d+$/.test(u.port) && Number(u.port) >= 1 && Number(u.port) <= 65535)) return null;
   return {
     protocol: u.protocol,
     hostname: u.hostname,
@@ -45,6 +47,16 @@ function createProxyServer(opts) {
   var timeoutMs = (opts && opts.timeoutMs) || 30000;
 
   return http.createServer(function (req, res) {
+    // Never let a bad request throw out of the handler: TizenBrew's Node process hosts this service.
+    try {
+      handle(req, res);
+    } catch (e) {
+      if (!res.headersSent) sendJson(res, 500, { message: 'Proxy error' });
+      else res.end();
+    }
+  });
+
+  function handle(req, res) {
     if (req.method === 'OPTIONS') {
       setCors(res);
       res.writeHead(204);
@@ -87,7 +99,7 @@ function createProxyServer(opts) {
     });
     req.on('aborted', function () { up.abort(); });
     req.pipe(up);
-  });
+  }
 }
 
 function start() {
