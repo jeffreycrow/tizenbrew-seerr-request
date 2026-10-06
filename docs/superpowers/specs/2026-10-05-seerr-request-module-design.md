@@ -21,7 +21,7 @@ A TizenBrew **app** module (`packageType: "app"`) that lets the user search Seer
 - `test/*.test.js` — Node tests for `api`, `keyboard`, `store`.
 
 ## Flow
-1. **Setup (first run or Settings key):** two fields (Seerr URL, API key) edited with the keyboard (symbols layer available). Save validates via `GET {url}/api/v1/status`; on success stores config.
+1. **Setup (first run or Settings key):** two fields (Seerr URL, API key) edited with the keyboard (symbols layer available). Save validates via `GET {url}/api/v1/auth/me` (the public `/status` endpoint does not check the key); on success stores config.
 2. **Search:** keyboard on left, poster grid on right. Debounced (~400 ms) `GET /api/v1/search?query=…&page=1`; drop `mediaType: "person"`. Each card shows poster, title, year, status badge from `mediaInfo.status` (available / partially available / pending / processing / not requested).
 3. **Detail:** overview, year, rating, status. Movie → Request button → `POST /api/v1/request {mediaType:"movie", mediaId}`. TV → season picker (all by default) → `{mediaType:"tv", mediaId, seasons:[…]}`. Items already available/pending show a disabled button.
 4. **Result:** toast on success or error (e.g. 409 already requested, 401/403 bad key → offer Settings, network failure → retry message).
