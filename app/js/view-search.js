@@ -34,7 +34,7 @@
     }
 
     function renderResults() {
-      cardsGroup.clear();
+      var hadFocus = cardsGroup.clear();
       SR.clear(gridEl);
       cards = [];
       st.items.forEach(function (item, i) {
@@ -48,6 +48,10 @@
         cards.push(card);
         gridEl.appendChild(card);
       });
+      if (hadFocus && kbView) {
+        // the focused card was just removed: land on the first new card, else the keyboard
+        if (cards.length) ctx.nav.focusEl(cards[0]); else kbView.focusFirst();
+      }
     }
 
     function search() {

@@ -42,9 +42,14 @@
         keys.push(key);
         return key;
       },
+      // Returns true when the removed set contained the currently focused element,
+      // so the caller can move focus somewhere live (Norigin does not restore it).
       clear: function () {
+        var current = N.getCurrentFocusKey();
+        var hadFocus = keys.indexOf(current) !== -1;
         keys.forEach(function (k) { N.SpatialNavigation.removeFocusable({ focusKey: k }); });
         keys = [];
+        return hadFocus;
       }
     };
   }
