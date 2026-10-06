@@ -41,3 +41,19 @@ A TizenBrew **app** module (`packageType: "app"`) that lets the user search Seer
 - Seerr CORS / mixed content (HTTPS page vs HTTP LAN Seerr) — handled by the probe, proxy as fallback.
 - Norigin on older Tizen Chromium — fallback to custom grid nav.
 - Exact TizenBrew app-module hosting/origin behavior unverified until tested on a TV.
+
+## Addendum (2026-10-05): local proxy service
+
+**Why:** Probe of a real Seerr (`GET /api/v1/auth/me` with a valid key → 200) showed no CORS headers and `OPTIONS` → 405. A page cannot send `X-Api-Key` cross-origin without a successful preflight, so direct fetch from the TV page is impossible. The contingency above is now required.
+
+**TizenBrew facts (from `tizenbrew-app/TizenBrew/service-nextgen/service`):**
+- The page is served from `http://127.0.0.1:8081/module/<name>/<appPath>`; module files (and `serviceFile`) are fetched from `https://cdn.jsdelivr.net/<module>/…` (`gh/<user>/<repo>` or `npm/<pkg>`), so the module must be published to GitHub/npm.
+- `serviceFile` is a single script run via `vm.runInContext` with `require`, `module`, `tizen`, `console`, `process`, `Buffer` available. It starts when the module is launched and is not restarted unless it crashed. TizenBrew's Node may be v4.4.3, so the service must be a self-contained ES5-style file (no `async/await`, spread, destructuring, `?.`, `??`, template literals).
+
+**Design:** `service.js` is a loopback-only HTTP proxy (`127.0.0.1:8765`):
+- `GET /health` → `{"ok":true}`.
+- `OPTIONS *` → 204 with CORS headers (`Allow-Origin: *`, allow headers `x-seerr-url, x-api-key, content-type, accept`, `Allow-Private-Network`).
+- `GET|POST /proxy/api/v1/...` → forwards to `<X-Seerr-Url>/api/v1/...` with only `x-api-key`, `content-type`, `accept` headers and the body; relays upstream status, content-type and body; adds CORS headers.
+- Guards: only `api/v1/` paths (no `..`), only `http:`/`https:` base URLs, only GET/POST; upstream failure → 502, timeout (15 s) → 504, both JSON with CORS headers.
+- The page probes `/health` at startup (retrying while the service starts on a TV). If the proxy answers, all Seerr calls go through it; otherwise direct mode (desktop dev, or a Seerr that already sends CORS headers).
+- Not supported (YAGNI): self-signed HTTPS upstreams, redirects.
