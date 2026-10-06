@@ -52,5 +52,18 @@
     };
   }
 
-  return { createStore: createStore };
+  // A packaged widget build (see scripts/build-wgt.js) may bake in the Seerr URL and API key via
+  // window.SR_CONFIG. A config saved on the device always wins over the baked-in one.
+  function initialConfig(stored, build) {
+    if (stored) return stored;
+    if (build && build.baseUrl && build.apiKey) return { baseUrl: String(build.baseUrl), apiKey: String(build.apiKey) };
+    return null;
+  }
+
+  // The local TizenBrew proxy is only probed unless the build says there is none (standalone widget).
+  function proxyWanted(build) {
+    return !(build && build.proxy === false);
+  }
+
+  return { createStore: createStore, initialConfig: initialConfig, proxyWanted: proxyWanted };
 });

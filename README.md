@@ -12,6 +12,22 @@ TizenBrew loads modules from jsDelivr, so the module must be public first:
 
 If the service crashed, TizenBrew's module settings show the service status and error.
 
+## Install as a .wgt (Apps2Samsung, no TizenBrew)
+
+You can also build a standalone Tizen widget and sideload it with [Apps2Samsung](https://github.com/Apps2Samsung/Apps2Samsung) (it handles the signing certificate; your TV must be in Developer Mode):
+
+```bash
+npm run wgt -- --url http://192.168.1.10:5055 --key <your Seerr API key>
+# or: SEERR_URL=... SEERR_API_KEY=... npm run wgt
+```
+
+This writes `dist/SeerrRequest.wgt`. In Apps2Samsung choose your TV, pick **custom .wgt**, and select that file.
+
+- **Your URL and API key are baked into the file** (a widget has no service to pair a phone with, and a 60-character key is impractical to type). Keep `dist/` private; it is git-ignored. Build without `--url/--key` to get a credential-free package that asks on first run (on-screen keyboard).
+- The app calls Seerr directly; `config.xml` grants the widget network access (`<access origin="*">`). If your Seerr is not reachable from the TV, or the TV blocks the call, the app shows "Cannot reach Seerr".
+- Changing the baked credentials needs a rebuild and a reinstall (a config saved on the TV by Settings wins over the baked one).
+- Package id `SeerrReq01.SeerrRequest`; to reinstall a new version, install over it from Apps2Samsung.
+
 ## How it talks to Seerr
 
 Seerr sends no CORS headers, so a web page on the TV cannot call it directly. `service.js` runs on the TV as a tiny proxy on `127.0.0.1:8765` (loopback only, `/api/v1` paths only, GET/POST only). The page checks `http://127.0.0.1:8765/health` at startup and uses the proxy when it answers; otherwise it calls Seerr directly (desktop development, or a Seerr behind a reverse proxy that adds CORS headers). The API key is stored on the TV and sent only to your Seerr through the proxy. The proxy follows redirects within the same host (for example http to https; never https down to http). If your Seerr redirects to a different address, the app shows that address so you can use it instead. Self-signed HTTPS certificates are not supported. Calls time out after 30 s.

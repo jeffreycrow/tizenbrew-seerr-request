@@ -1,8 +1,11 @@
 (function (w) {
   var SR = w.SR;
   var PROXY_URL = 'http://127.0.0.1:8765';
+  var BUILD = w.SR_CONFIG; // set by js/config.js in a packaged .wgt build (see scripts/build-wgt.js)
   var store = SR.store.createStore();
-  var cfg = store.load();
+  var stored = store.load();
+  var cfg = SR.store.initialConfig(stored, BUILD);
+  if (cfg && !stored) store.save(cfg);
 
   var ctx = {
     root: document.getElementById('app'),
@@ -49,11 +52,16 @@
   });
 
   SR.nav.init();
+  // Under TizenBrew the module's `keys` register the colour key; as a standalone widget we do it here.
+  try { w.tizen.tvinputdevice.registerKey('ColorF0Red'); } catch (e) { /* not on a Tizen TV */ }
   if (!store.isPersistent()) SR.toast('Settings cannot be saved on this device.', 'error');
 
   // On a TV the TizenBrew service may still be starting, so retry; on desktop probe once.
   ctx.root.appendChild(SR.h('div', { 'class': 'message', text: 'Starting...' }));
-  SR.api.probeProxy(PROXY_URL, { attempts: w.tizen ? 8 : 1 }).then(function (ok) {
+  var probe = SR.store.proxyWanted(BUILD)
+    ? SR.api.probeProxy(PROXY_URL, { attempts: w.tizen ? 8 : 1 })
+    : Promise.resolve(false);
+  probe.then(function (ok) {
     ctx.proxyUrl = ok ? PROXY_URL : null;
     ctx.client = cfg ? ctx.makeClient(cfg) : null;
     SR.clear(ctx.root);

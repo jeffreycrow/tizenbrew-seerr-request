@@ -46,3 +46,32 @@ test('clear removes config', () => {
   s.clear();
   assert.equal(s.load(), null);
 });
+
+test('initialConfig prefers the stored config over a baked-in one', () => {
+  const { initialConfig } = require('../app/js/store.js');
+  const stored = { baseUrl: 'http://stored', apiKey: 'S' };
+  const baked = { baseUrl: 'http://baked', apiKey: 'B', proxy: false };
+  assert.deepEqual(initialConfig(stored, baked), stored);
+});
+
+test('initialConfig falls back to the baked-in url+key, ignoring other fields', () => {
+  const { initialConfig } = require('../app/js/store.js');
+  assert.deepEqual(initialConfig(null, { baseUrl: 'http://baked', apiKey: 'B', proxy: false }), { baseUrl: 'http://baked', apiKey: 'B' });
+});
+
+test('initialConfig is null when nothing usable exists', () => {
+  const { initialConfig } = require('../app/js/store.js');
+  assert.equal(initialConfig(null, undefined), null);
+  assert.equal(initialConfig(null, {}), null);
+  assert.equal(initialConfig(null, { proxy: false }), null);
+  assert.equal(initialConfig(null, { baseUrl: 'http://x' }), null);
+  assert.equal(initialConfig(null, { apiKey: 'k' }), null);
+});
+
+test('proxyWanted is true unless the build explicitly disables it', () => {
+  const { proxyWanted } = require('../app/js/store.js');
+  assert.equal(proxyWanted(undefined), true);
+  assert.equal(proxyWanted({}), true);
+  assert.equal(proxyWanted({ proxy: true }), true);
+  assert.equal(proxyWanted({ proxy: false }), false);
+});
