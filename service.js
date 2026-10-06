@@ -5,11 +5,19 @@
 var http = require('http');
 var https = require('https');
 var urlLib = require('url');
+var os = require('os');
+var crypto = require('crypto');
+var querystring = require('querystring');
 
 var PORT = 8765;
 var HOST = '127.0.0.1';
 var PREFIX = '/proxy/';
 var FORWARD_HEADERS = ['x-api-key', 'content-type', 'accept'];
+
+var SETUP_PORT = 8766;
+var SETUP_MAX_BODY = 8192;
+var SETUP_MAX_ATTEMPTS = 5;
+var SETUP_MAX_KEY = 512;
 
 function setCors(res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -21,7 +29,7 @@ function setCors(res) {
 function sendJson(res, code, obj) {
   var body = JSON.stringify(obj);
   setCors(res);
-  res.writeHead(code, { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) });
+  res.writeHead(code, { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body), 'Cache-Control': 'no-store' });
   res.end(body);
 }
 
@@ -43,8 +51,168 @@ function pathAllowed(pathOnly) {
   return pathOnly.indexOf('api/v1/') === 0 && !/(^|\/)\.\.(\/|$)/.test(pathOnly);
 }
 
+// ---- Phone pairing: a short-lived LAN page where the user pastes the Seerr URL and API key ----
+
+var SETUP_PAGE = [
+  '<!doctype html><html><head><meta charset="utf-8">',
+  '<meta name="viewport" content="width=device-width, initial-scale=1">',
+  '<title>Seerr Request setup</title>',
+  '<style>body{font-family:sans-serif;margin:0;padding:20px;background:#0b0d12;color:#f2f4f8}',
+  'label{display:block;margin:16px 0 6px;color:#8d95a8}',
+  'input,textarea{width:100%;box-sizing:border-box;font-size:18px;padding:12px;border-radius:8px;border:1px solid #333;background:#151922;color:#f2f4f8}',
+  'button{margin-top:24px;width:100%;font-size:20px;padding:14px;border:0;border-radius:8px;background:#e50914;color:#fff}</style></head><body>',
+  '<h2>Seerr Request setup</h2>',
+  '<form method="post" action="/submit">',
+  '<label for="url">Seerr URL</label><input id="url" name="url" placeholder="http://192.168.1.10:5055" autocapitalize="none" autocorrect="off" spellcheck="false">',
+  '<label for="key">API key</label><textarea id="key" name="key" rows="3" autocapitalize="none" autocorrect="off" spellcheck="false"></textarea>',
+  '<label for="pin">PIN shown on your TV</label><input id="pin" name="pin" inputmode="numeric" maxlength="4" autocomplete="off">',
+  '<button type="submit">Send to TV</button></form></body></html>'
+].join('');
+
+function sendRaw(res, code, html) {
+  res.writeHead(code, {
+    'Content-Type': 'text/html; charset=utf-8',
+    'Content-Length': Buffer.byteLength(html),
+    'Cache-Control': 'no-store'
+  });
+  res.end(html);
+}
+
+function sendNote(res, code, text) {
+  sendRaw(res, code, '<!doctype html><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><body style="font-family:sans-serif;padding:20px"><p>' + text + '</p>' + (code === 200 ? '' : '<p><a href="/">Back</a></p>') + '</body>');
+}
+
+function makePin() {
+  return ('0000' + (parseInt(crypto.randomBytes(4).toString('hex'), 16) % 10000)).slice(-4);
+}
+
+function localAddresses(port) {
+  var out = [];
+  var ifs = os.networkInterfaces();
+  Object.keys(ifs).forEach(function (name) {
+    ifs[name].forEach(function (a) {
+      if ((a.family === 'IPv4' || a.family === 4) && !a.internal) out.push('http://' + a.address + ':' + port);
+    });
+  });
+  return out;
+}
+
+function createPairing(opts) {
+  opts = opts || {};
+  var host = opts.host || '0.0.0.0';
+  var port = opts.port === undefined ? SETUP_PORT : opts.port;
+  var lifetimeMs = opts.timeoutMs || 600000;
+  var state = null;
+  var starting = null;
+
+  function close() {
+    if (!state) return;
+    var s = state;
+    state = null;
+    clearTimeout(s.timer);
+    try { s.server.close(); } catch (e) { /* already closed */ }
+  }
+
+  function info(s) {
+    var p = s.server.address().port;
+    return { pin: s.pin, port: p, addresses: localAddresses(p) };
+  }
+
+  function handleForm(s, raw, res) {
+    var f = querystring.parse(raw);
+    var pin = String(f.pin || '').trim();
+    if (pin !== s.pin) {
+      s.attempts += 1;
+      if (s.attempts >= SETUP_MAX_ATTEMPTS) {
+        sendNote(res, 403, 'Too many wrong PINs. Start again on the TV.');
+        if (state === s) close();
+        return;
+      }
+      return sendNote(res, 403, 'Wrong PIN. Check your TV and try again.');
+    }
+    var url = String(f.url || '').trim();
+    var key = String(f.key || '').trim();
+    if (!parseBase(url)) return sendNote(res, 400, 'That Seerr URL does not look right. Include http:// and the port.');
+    if (!key || key.length > SETUP_MAX_KEY) return sendNote(res, 400, 'The API key is missing or too long.');
+    s.config = { baseUrl: url, apiKey: key };
+    sendNote(res, 200, 'Done! Your TV is connecting. You can close this page.');
+  }
+
+  function readSubmit(s, req, res) {
+    var size = 0;
+    var chunks = [];
+    var tooBig = false;
+    req.on('data', function (c) {
+      if (tooBig) return;
+      size += c.length;
+      if (size > SETUP_MAX_BODY) {
+        tooBig = true;
+        chunks = [];
+        return sendNote(res, 413, 'Too much data.');
+      }
+      chunks.push(c);
+    });
+    req.on('end', function () {
+      if (tooBig) return;
+      handleForm(s, Buffer.concat(chunks).toString('utf8'), res);
+    });
+  }
+
+  function handleSetup(s, req, res) {
+    if (req.method === 'GET' && req.url === '/') return sendRaw(res, 200, SETUP_PAGE);
+    if (req.method === 'POST' && req.url === '/submit') return readSubmit(s, req, res);
+    sendNote(res, 404, 'Not found');
+  }
+
+  function start(cb) {
+    if (state) return cb(null, info(state));
+    if (starting) { starting.push(cb); return; }
+    starting = [cb];
+    var s = { server: null, pin: makePin(), attempts: 0, config: null, timer: null };
+    var settled = false;
+    function finish(err, result) {
+      var list = starting;
+      starting = null;
+      list.forEach(function (f) { f(err, result); });
+    }
+    s.server = http.createServer(function (req, res) {
+      try { handleSetup(s, req, res); } catch (e) { sendNote(res, 500, 'Something went wrong. Start again on the TV.'); }
+    });
+    s.server.on('error', function (e) {
+      if (settled) return;
+      settled = true;
+      finish(e);
+    });
+    s.server.listen(port, host, function () {
+      settled = true;
+      state = s;
+      s.timer = setTimeout(close, lifetimeMs);
+      finish(null, info(s));
+    });
+  }
+
+  function poll() {
+    if (!state) return { status: 'idle' };
+    if (state.config) {
+      var c = state.config;
+      close();
+      return { status: 'done', baseUrl: c.baseUrl, apiKey: c.apiKey };
+    }
+    return { status: 'waiting' };
+  }
+
+  return { start: start, poll: poll, cancel: close };
+}
+
+var sharedPairing = null;
+function defaultPairing() {
+  if (!sharedPairing) sharedPairing = createPairing();
+  return sharedPairing;
+}
+
 function createProxyServer(opts) {
   var timeoutMs = (opts && opts.timeoutMs) || 30000;
+  var pairing = (opts && opts.pairing) || defaultPairing();
 
   return http.createServer(function (req, res) {
     // Never let a bad request throw out of the handler: TizenBrew's Node process hosts this service.
@@ -63,6 +231,20 @@ function createProxyServer(opts) {
       return res.end();
     }
     if (req.url === '/health') return sendJson(res, 200, { ok: true });
+    if (req.url === '/setup/start' && req.method === 'POST') {
+      req.resume();
+      pairing.start(function (err, result) {
+        if (err) return sendJson(res, 500, { message: 'Cannot open the phone setup port: ' + (err.code || 'error') });
+        sendJson(res, 200, result);
+      });
+      return;
+    }
+    if (req.url === '/setup/poll' && req.method === 'GET') return sendJson(res, 200, pairing.poll());
+    if (req.url === '/setup/cancel' && req.method === 'POST') {
+      req.resume();
+      pairing.cancel();
+      return sendJson(res, 200, { ok: true });
+    }
     if (req.url.indexOf(PREFIX) !== 0) return sendJson(res, 404, { message: 'Not found' });
     if (req.method !== 'GET' && req.method !== 'POST') return sendJson(res, 405, { message: 'Method not allowed' });
 
@@ -113,6 +295,9 @@ function start() {
   return server;
 }
 
-module.exports = { createProxyServer: createProxyServer, start: start, PORT: PORT, HOST: HOST };
+module.exports = {
+  createProxyServer: createProxyServer, createPairing: createPairing, start: start,
+  PORT: PORT, HOST: HOST, SETUP_PORT: SETUP_PORT
+};
 
 if (!(typeof process !== 'undefined' && process.env && process.env.SR_NO_START)) start();
