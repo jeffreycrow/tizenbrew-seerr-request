@@ -36,10 +36,10 @@ const good = (pin) => ({ url: 'http://192.168.1.10:5055', key: 'abc/DEF+123==', 
 
 test('constants', () => assert.equal(SETUP_PORT, 8766));
 
-test('start returns a 4-digit pin, the port and phone addresses', async (t) => {
+test('start returns a 6-digit pin, the port and phone addresses', async (t) => {
   const p = setup(t);
   const info = await startP(p);
-  assert.match(info.pin, /^\d{4}$/);
+  assert.match(info.pin, /^\d{6}$/);
   assert.ok(info.port > 0);
   assert.ok(Array.isArray(info.addresses));
   info.addresses.forEach((a) => assert.match(a, /^http:\/\/\d+\.\d+\.\d+\.\d+:\d+$/));
@@ -83,7 +83,7 @@ test('whitespace around url and key is trimmed', async (t) => {
 test('wrong pin is a 403 and stores nothing', async (t) => {
   const p = setup(t);
   const { port, pin } = await startP(p);
-  const wrong = pin === '0000' ? '1111' : '0000';
+  const wrong = pin === '000000' ? '111111' : '000000';
   const r = await submit(port, good(wrong));
   assert.equal(r.status, 403);
   assert.deepEqual(p.poll(), { status: 'waiting' });
@@ -92,7 +92,7 @@ test('wrong pin is a 403 and stores nothing', async (t) => {
 test('five wrong pins close pairing; even the right pin afterwards is refused', async (t) => {
   const p = setup(t);
   const { port, pin } = await startP(p);
-  const wrong = pin === '0000' ? '1111' : '0000';
+  const wrong = pin === '000000' ? '111111' : '000000';
   for (let i = 0; i < 5; i++) assert.equal((await submit(port, good(wrong))).status, 403);
   assert.deepEqual(p.poll(), { status: 'idle' });
   await assert.rejects(() => submit(port, good(pin)));
@@ -151,7 +151,7 @@ test('poll with nothing started is idle; a new start after done works', async (t
   p.poll();
   const b = await startP(p);
   assert.deepEqual(p.poll(), { status: 'waiting' });
-  assert.match(b.pin, /^\d{4}$/);
+  assert.match(b.pin, /^\d{6}$/);
 });
 
 test('start reports an error when the port is taken', async (t) => {
@@ -172,11 +172,12 @@ test('loopback API on the proxy: start, poll, cancel with CORS headers', async (
   t.after(() => { if (proxy.closeAllConnections) proxy.closeAllConnections(); proxy.close(); });
   const pp = proxy.address().port;
 
-  const s = await call(pp, { method: 'POST', path: '/setup/start' });
+  const APP = { Origin: 'http://127.0.0.1:8081' };
+  const s = await call(pp, { method: 'POST', path: '/setup/start', headers: APP });
   assert.equal(s.status, 200);
-  assert.equal(s.headers['access-control-allow-origin'], '*');
+  assert.equal(s.headers['access-control-allow-origin'], 'http://127.0.0.1:8081');
   const info = JSON.parse(s.text);
-  assert.match(info.pin, /^\d{4}$/);
+  assert.match(info.pin, /^\d{6}$/);
 
   assert.deepEqual(JSON.parse((await call(pp, { path: '/setup/poll' })).text), { status: 'waiting' });
   await submit(info.port, good(info.pin));
@@ -198,8 +199,46 @@ test('loopback start surfaces a port conflict as a JSON 500', async (t) => {
   const proxy = createProxyServer({ pairing: p });
   await new Promise((r) => proxy.listen(0, '127.0.0.1', r));
   t.after(() => { if (proxy.closeAllConnections) proxy.closeAllConnections(); proxy.close(); });
-  const r = await call(proxy.address().port, { method: 'POST', path: '/setup/start' });
+  const r = await call(proxy.address().port, { method: 'POST', path: '/setup/start', headers: { Origin: 'http://127.0.0.1:8081' } });
   assert.equal(r.status, 500);
-  assert.equal(r.headers['access-control-allow-origin'], '*');
+  assert.equal(r.headers['access-control-allow-origin'], 'http://127.0.0.1:8081');
   assert.equal(typeof JSON.parse(r.text).message, 'string');
+});
+
+test('setup API refuses non-loopback web origins and does not start pairing for them', async (t) => {
+  const p = setup(t);
+  const proxy = createProxyServer({ pairing: p });
+  await new Promise((r) => proxy.listen(0, '127.0.0.1', r));
+  t.after(() => { if (proxy.closeAllConnections) proxy.closeAllConnections(); proxy.close(); });
+  const pp = proxy.address().port;
+  for (const origin of ['http://evil.example', 'https://127.0.0.1:8081', 'http://127.0.0.1.evil.example', 'null']) {
+    for (const [method, path] of [['POST', '/setup/start'], ['GET', '/setup/poll'], ['POST', '/setup/cancel']]) {
+      const r = await call(pp, { method, path, headers: { Origin: origin } });
+      assert.equal(r.status, 403, origin + ' ' + path);
+      assert.equal(r.headers['access-control-allow-origin'], undefined, origin + ' ' + path);
+    }
+  }
+  assert.deepEqual(p.poll(), { status: 'idle' });
+});
+
+test('setup API accepts loopback origins (app on 8081, desktop dev on localhost) and requests without Origin', async (t) => {
+  const p = setup(t);
+  const proxy = createProxyServer({ pairing: p });
+  await new Promise((r) => proxy.listen(0, '127.0.0.1', r));
+  t.after(() => { if (proxy.closeAllConnections) proxy.closeAllConnections(); proxy.close(); });
+  const pp = proxy.address().port;
+  for (const origin of ['http://127.0.0.1:8081', 'http://localhost:8080', 'http://127.0.0.1']) {
+    const r = await call(pp, { path: '/setup/poll', headers: { Origin: origin } });
+    assert.equal(r.status, 200, origin);
+    assert.equal(r.headers['access-control-allow-origin'], origin);
+  }
+  assert.equal((await call(pp, { path: '/setup/poll' })).status, 200);
+});
+
+test('pin is six digits and the form allows six', async (t) => {
+  const p = setup(t);
+  const { port, pin } = await startP(p);
+  assert.equal(pin.length, 6);
+  const page = (await call(port, { path: '/' })).text;
+  assert.ok(page.indexOf('maxlength="6"') !== -1);
 });

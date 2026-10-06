@@ -13,12 +13,12 @@ const fail = (status) => ({ ok: false, status, json: () => Promise.resolve({}) }
 const P = 'http://127.0.0.1:8765';
 
 test('startPairing POSTs /setup/start with no custom headers and returns the info', async () => {
-  const f = fakeFetch(() => ok({ pin: '1234', port: 8766, addresses: ['http://192.168.1.50:8766'] }));
+  const f = fakeFetch(() => ok({ pin: '123456', port: 8766, addresses: ['http://192.168.1.50:8766'] }));
   const info = await startPairing(P + '/', { fetch: f });
   assert.equal(f.calls[0].url, P + '/setup/start');
   assert.equal(f.calls[0].init.method, 'POST');
   assert.equal(f.calls[0].init.headers, undefined);
-  assert.deepEqual(info, { pin: '1234', port: 8766, addresses: ['http://192.168.1.50:8766'] });
+  assert.deepEqual(info, { pin: '123456', port: 8766, addresses: ['http://192.168.1.50:8766'] });
 });
 
 test('pollPairing GETs /setup/poll', async () => {

@@ -65,7 +65,7 @@ var SETUP_PAGE = [
   '<form method="post" action="/submit">',
   '<label for="url">Seerr URL</label><input id="url" name="url" placeholder="http://192.168.1.10:5055" autocapitalize="none" autocorrect="off" spellcheck="false">',
   '<label for="key">API key</label><textarea id="key" name="key" rows="3" autocapitalize="none" autocorrect="off" spellcheck="false"></textarea>',
-  '<label for="pin">PIN shown on your TV</label><input id="pin" name="pin" inputmode="numeric" maxlength="4" autocomplete="off">',
+  '<label for="pin">PIN shown on your TV</label><input id="pin" name="pin" inputmode="numeric" maxlength="6" autocomplete="off">',
   '<button type="submit">Send to TV</button></form></body></html>'
 ].join('');
 
@@ -83,7 +83,22 @@ function sendNote(res, code, text) {
 }
 
 function makePin() {
-  return ('0000' + (parseInt(crypto.randomBytes(4).toString('hex'), 16) % 10000)).slice(-4);
+  return ('000000' + (parseInt(crypto.randomBytes(4).toString('hex'), 16) % 1000000)).slice(-6);
+}
+
+function loopbackOrigin(origin) {
+  return /^http:\/\/(127\.0\.0\.1|localhost|\[::1\])(:\d+)?$/.test(String(origin));
+}
+
+// JSON reply for the setup API; origin (when given) is echoed as the only allowed CORS origin.
+function sendSetupJson(res, code, obj, origin) {
+  var body = JSON.stringify(obj);
+  if (origin) {
+    res.setHeader('Access-Control-Allow-Origin', origin);
+    res.setHeader('Vary', 'Origin');
+  }
+  res.writeHead(code, { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body), 'Cache-Control': 'no-store' });
+  res.end(body);
 }
 
 function localAddresses(port) {
@@ -214,6 +229,30 @@ function createProxyServer(opts) {
   var timeoutMs = (opts && opts.timeoutMs) || 30000;
   var pairing = (opts && opts.pairing) || defaultPairing();
 
+  // The setup API hands out the API key, so only loopback web pages (the app itself, or desktop
+  // dev) may use it; CORS is granted to that exact origin, never '*'. Pages from other sites
+  // get a 403 with no CORS headers.
+  function handleSetupApi(req, res) {
+    var origin = req.headers.origin;
+    if (origin !== undefined && !loopbackOrigin(origin)) return sendSetupJson(res, 403, { message: 'Origin not allowed' }, null);
+    var allowed = origin === undefined ? null : origin;
+    if (req.url === '/setup/start' && req.method === 'POST') {
+      req.resume();
+      pairing.start(function (err, result) {
+        if (err) return sendSetupJson(res, 500, { message: 'Cannot open the phone setup port: ' + (err.code || 'error') }, allowed);
+        sendSetupJson(res, 200, result, allowed);
+      });
+      return;
+    }
+    if (req.url === '/setup/poll' && req.method === 'GET') return sendSetupJson(res, 200, pairing.poll(), allowed);
+    if (req.url === '/setup/cancel' && req.method === 'POST') {
+      req.resume();
+      pairing.cancel();
+      return sendSetupJson(res, 200, { ok: true }, allowed);
+    }
+    sendSetupJson(res, 404, { message: 'Not found' }, allowed);
+  }
+
   return http.createServer(function (req, res) {
     // Never let a bad request throw out of the handler: TizenBrew's Node process hosts this service.
     try {
@@ -231,20 +270,7 @@ function createProxyServer(opts) {
       return res.end();
     }
     if (req.url === '/health') return sendJson(res, 200, { ok: true });
-    if (req.url === '/setup/start' && req.method === 'POST') {
-      req.resume();
-      pairing.start(function (err, result) {
-        if (err) return sendJson(res, 500, { message: 'Cannot open the phone setup port: ' + (err.code || 'error') });
-        sendJson(res, 200, result);
-      });
-      return;
-    }
-    if (req.url === '/setup/poll' && req.method === 'GET') return sendJson(res, 200, pairing.poll());
-    if (req.url === '/setup/cancel' && req.method === 'POST') {
-      req.resume();
-      pairing.cancel();
-      return sendJson(res, 200, { ok: true });
-    }
+    if (req.url.indexOf('/setup/') === 0) return handleSetupApi(req, res);
     if (req.url.indexOf(PREFIX) !== 0) return sendJson(res, 404, { message: 'Not found' });
     if (req.method !== 'GET' && req.method !== 'POST') return sendJson(res, 405, { message: 'Method not allowed' });
 

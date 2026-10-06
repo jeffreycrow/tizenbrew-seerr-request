@@ -12,7 +12,7 @@
 
 ## Global Constraints
 - `service.js` stays one self-contained, Node-4-compatible file (existing ban-list test applies: no async/await, spread, destructuring, `?.`, `??`, template literals, default params, `**`); callbacks, not promises, in the service.
-- Pairing server default `0.0.0.0:8766`; loopback API stays on `127.0.0.1:8765`; PIN is 4 digits; max 5 wrong PINs; body limit 8 KB; API key ≤ 512 chars; pairing lifetime 10 min.
+- Pairing server default `0.0.0.0:8766`; loopback API stays on `127.0.0.1:8765`; PIN is 6 digits; max 5 wrong PINs; body limit 8 KB; API key ≤ 512 chars; pairing lifetime 10 min.
 - `poll` returns the config once and clears it. Never log the key or PIN.
 - Page code stays ES2017-safe; setup view keeps the keyboard fallback.
 
