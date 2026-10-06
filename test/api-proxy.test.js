@@ -80,3 +80,23 @@ test('probeProxy rejects non-ok, wrong body, and hanging fetches', async () => {
   assert.equal(await probeProxy('http://x', { fetch: fakeFetch(() => ok({ ok: false })), attempts: 1 }), false);
   assert.equal(await probeProxy('http://x', { fetch: () => new Promise(() => {}), attempts: 1, timeoutMs: 20 }), false);
 });
+
+test('a 502/504 from the proxy shows its reason message, still as a network error', async () => {
+  const withBody = (status, body) => ({ ok: false, status, json: () => Promise.resolve(body) });
+  const msg = 'Seerr redirected to a different address (https://seerr.example.com). Use that URL instead.';
+  const c = createClient({ baseUrl: 'http://s', apiKey: 'K', fetch: fakeFetch(() => withBody(502, { message: msg })), proxyUrl: 'http://127.0.0.1:8765' });
+  await assert.rejects(() => c.getMe(), (e) => e.kind === 'network' && e.status === 502 && e.message === msg);
+});
+
+test('a 502 whose body is not JSON, or has no message, keeps the generic network message', async () => {
+  const bad = { ok: false, status: 502, json: () => Promise.reject(new SyntaxError('x')) };
+  const c1 = createClient({ baseUrl: 'http://s', apiKey: 'K', fetch: fakeFetch(() => bad), proxyUrl: 'http://127.0.0.1:8765' });
+  await assert.rejects(() => c1.getMe(), (e) => e.kind === 'network' && /Cannot reach Seerr/.test(e.message));
+  const c2 = createClient({ baseUrl: 'http://s', apiKey: 'K', fetch: fakeFetch(() => ({ ok: false, status: 504, json: () => Promise.resolve({}) })), proxyUrl: 'http://127.0.0.1:8765' });
+  await assert.rejects(() => c2.getMe(), (e) => e.kind === 'network' && /Cannot reach Seerr/.test(e.message));
+});
+
+test('other statuses do not read the body for a message', async () => {
+  const c = createClient({ baseUrl: 'http://s', apiKey: 'K', fetch: fakeFetch(() => ({ ok: false, status: 307, json: () => Promise.resolve({ message: 'nope' }) })) });
+  await assert.rejects(() => c.getMe(), (e) => e.kind === 'http' && e.status === 307 && /307/.test(e.message));
+});

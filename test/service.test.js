@@ -181,3 +181,108 @@ test('malformed upstream URLs never crash the service (bad port is a 400, server
   const health = await call(s.port, { path: '/health' });
   assert.equal(health.status, 200);
 });
+
+// ---- redirects ----
+
+async function twoServers(t, handlerA, handlerB) {
+  const seenA = [], seenB = [];
+  const mk = (seen, handler) => http.createServer((req, res) => {
+    let body = '';
+    req.on('data', (c) => (body += c));
+    req.on('end', () => { seen.push({ method: req.method, url: req.url, headers: req.headers, body }); handler(req, res, body); });
+  });
+  const a = mk(seenA, handlerA), b = mk(seenB, handlerB || ((req, res) => json(res, 200, { from: 'b' })));
+  const aPort = await listen(a), bPort = await listen(b);
+  const proxy = createProxyServer();
+  const port = await listen(proxy);
+  t.after(() => { [a, b, proxy].forEach((s) => { if (s.closeAllConnections) s.closeAllConnections(); s.close(); }); });
+  return { port, aPort, bPort, seenA, seenB, baseA: 'http://127.0.0.1:' + aPort };
+}
+
+const redirect = (res, code, location) => { res.writeHead(code, { Location: location }); res.end(); };
+
+test('GET redirects on the same host are followed (301/302/307/308), keeping the api key', async (t) => {
+  for (const code of [301, 302, 307, 308]) {
+    const s = await twoServers(t, (req, res) => (req.url === '/api/v1/old' ? redirect(res, code, '/api/v1/new') : json(res, 200, { ok: code })));
+    const r = await call(s.port, { path: '/proxy/api/v1/old', headers: { 'X-Seerr-Url': s.baseA, 'X-Api-Key': 'K' } });
+    assert.equal(r.status, 200, String(code));
+    assert.deepEqual(JSON.parse(r.text), { ok: code });
+    assert.deepEqual(s.seenA.map((x) => x.url), ['/api/v1/old', '/api/v1/new']);
+    assert.equal(s.seenA[1].headers['x-api-key'], 'K');
+  }
+});
+
+test('absolute same-host redirect (different port) is followed', async (t) => {
+  const s = await twoServers(t, (req, res) => redirect(res, 307, 'http://127.0.0.1:' + 0 + '/x'), (req, res) => json(res, 200, { from: 'b' }));
+  // re-point A at B's port now that it is known
+  s.seenA.length = 0;
+  const a2 = http.createServer((req, res) => redirect(res, 307, 'http://127.0.0.1:' + s.bPort + '/api/v1/final'));
+  const a2Port = await listen(a2);
+  t.after(() => { if (a2.closeAllConnections) a2.closeAllConnections(); a2.close(); });
+  const r = await call(s.port, { path: '/proxy/api/v1/x', headers: { 'X-Seerr-Url': 'http://127.0.0.1:' + a2Port, 'X-Api-Key': 'K' } });
+  assert.equal(r.status, 200);
+  assert.deepEqual(JSON.parse(r.text), { from: 'b' });
+  assert.equal(s.seenB[0].url, '/api/v1/final');
+  assert.equal(s.seenB[0].headers['x-api-key'], 'K');
+});
+
+test('POST 307/308 replays method and body on the new location', async (t) => {
+  const body = JSON.stringify({ mediaType: 'movie', mediaId: 603 });
+  for (const code of [307, 308]) {
+    const s = await twoServers(t, (req, res) => (req.url === '/api/v1/request' ? redirect(res, code, '/api/v1/request2') : json(res, 201, { id: 1 })));
+    const r = await call(s.port, {
+      method: 'POST', path: '/proxy/api/v1/request', body,
+      headers: { 'X-Seerr-Url': s.baseA, 'X-Api-Key': 'K', 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) }
+    });
+    assert.equal(r.status, 201, String(code));
+    assert.equal(s.seenA[1].method, 'POST');
+    assert.equal(s.seenA[1].url, '/api/v1/request2');
+    assert.equal(s.seenA[1].body, body);
+    assert.equal(s.seenA[1].headers['content-type'], 'application/json');
+  }
+});
+
+test('303 turns a POST into a body-less GET', async (t) => {
+  const body = JSON.stringify({ a: 1 });
+  const s = await twoServers(t, (req, res) => (req.url === '/api/v1/request' ? redirect(res, 303, '/api/v1/done') : json(res, 200, { done: true })));
+  const r = await call(s.port, { method: 'POST', path: '/proxy/api/v1/request', body, headers: { 'X-Seerr-Url': s.baseA, 'X-Api-Key': 'K', 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) } });
+  assert.equal(r.status, 200);
+  assert.equal(s.seenA[1].method, 'GET');
+  assert.equal(s.seenA[1].body, '');
+});
+
+test('a redirect to a different host is refused with a message naming it, and that host is never contacted', async (t) => {
+  const s = await twoServers(t, (req, res) => redirect(res, 307, 'http://localhost:' + 0));
+  const a2 = http.createServer((req, res) => redirect(res, 307, 'http://localhost:' + s.bPort + '/api/v1/x'));
+  const a2Port = await listen(a2);
+  t.after(() => { if (a2.closeAllConnections) a2.closeAllConnections(); a2.close(); });
+  const r = await call(s.port, { path: '/proxy/api/v1/x', headers: { 'X-Seerr-Url': 'http://127.0.0.1:' + a2Port, 'X-Api-Key': 'K' } });
+  assert.equal(r.status, 502);
+  assert.equal(r.headers['access-control-allow-origin'], '*');
+  const msg = JSON.parse(r.text).message;
+  assert.ok(msg.indexOf('localhost:' + s.bPort) !== -1, msg);
+  assert.equal(s.seenB.length, 0);
+});
+
+test('a redirect loop stops after a few hops with a 502', async (t) => {
+  const s = await twoServers(t, (req, res) => redirect(res, 307, '/api/v1/loop'));
+  const r = await call(s.port, { path: '/proxy/api/v1/loop', headers: { 'X-Seerr-Url': s.baseA, 'X-Api-Key': 'K' } });
+  assert.equal(r.status, 502);
+  assert.ok(JSON.parse(r.text).message.toLowerCase().indexOf('redirect') !== -1);
+  assert.ok(s.seenA.length <= 7);
+});
+
+test('a redirect status without a Location header is relayed as is', async (t) => {
+  const s = await twoServers(t, (req, res) => { res.writeHead(307); res.end(); });
+  const r = await call(s.port, { path: '/proxy/api/v1/x', headers: { 'X-Seerr-Url': s.baseA, 'X-Api-Key': 'K' } });
+  assert.equal(r.status, 307);
+  assert.equal(s.seenA.length, 1);
+});
+
+test('request bodies over 64 KB are a 413 and never reach the upstream', async (t) => {
+  const s = await twoServers(t, (req, res) => json(res, 200, {}));
+  const body = 'x'.repeat(70000);
+  const r = await call(s.port, { method: 'POST', path: '/proxy/api/v1/request', body, headers: { 'X-Seerr-Url': s.baseA, 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(body) } });
+  assert.equal(r.status, 413);
+  assert.equal(s.seenA.length, 0);
+});

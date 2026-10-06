@@ -14,11 +14,11 @@
   ApiError.prototype = Object.create(Error.prototype);
   ApiError.prototype.constructor = ApiError;
 
-  function httpError(status) {
+  function httpError(status, detail) {
     if (status === 401 || status === 403) return new ApiError('auth', 'Seerr rejected the API key.', status);
     if (status === 404) return new ApiError('notfound', 'Not found on Seerr.', status);
     if (status === 409) return new ApiError('conflict', 'Already requested.', status);
-    if (status === 502 || status === 504) return new ApiError('network', 'Cannot reach Seerr. Check the URL and network.', status);
+    if (status === 502 || status === 504) return new ApiError('network', detail || 'Cannot reach Seerr. Check the URL and network.', status);
     return new ApiError('http', 'Seerr returned an error (' + status + ').', status);
   }
 
@@ -76,7 +76,14 @@
         timer = setTimeout(function () { reject(new ApiError('timeout', 'Seerr did not respond in time.')); }, timeoutMs);
       });
       var call = doFetch(base + path, init).then(function (res) {
-        if (!res.ok) throw httpError(res.status);
+        if (!res.ok) {
+          // the local proxy explains 502/504 in a JSON {message}; show it
+          if (res.status === 502 || res.status === 504) {
+            return res.json().then(function (b) { throw httpError(res.status, b && b.message); },
+              function () { throw httpError(res.status); });
+          }
+          throw httpError(res.status);
+        }
         if (res.status === 204) return null;
         return res.json().catch(function () {
           throw new ApiError('parse', 'Unexpected response. Is this a Seerr URL?');

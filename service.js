@@ -14,6 +14,10 @@ var HOST = '127.0.0.1';
 var PREFIX = '/proxy/';
 var FORWARD_HEADERS = ['x-api-key', 'content-type', 'accept'];
 
+var MAX_PROXY_BODY = 65536;
+var MAX_REDIRECTS = 5;
+var REDIRECT_CODES = [301, 302, 303, 307, 308];
+
 var SETUP_PORT = 8766;
 var SETUP_MAX_BODY = 8192;
 var SETUP_MAX_ATTEMPTS = 5;
@@ -284,31 +288,90 @@ function createProxyServer(opts) {
 
     var headers = {};
     FORWARD_HEADERS.forEach(function (h) { if (req.headers[h]) headers[h] = req.headers[h]; });
-    if (req.headers['content-length']) headers['content-length'] = req.headers['content-length'];
 
-    var timedOut = false;
-    var lib = base.protocol === 'https:' ? https : http;
-    var up = lib.request({
-      hostname: base.hostname,
-      port: base.port,
-      path: base.prefix + '/' + rest,
-      method: req.method,
-      headers: headers
-    }, function (ures) {
-      setCors(res);
-      var out = {};
-      if (ures.headers['content-type']) out['Content-Type'] = ures.headers['content-type'];
-      res.writeHead(ures.statusCode, out);
-      ures.pipe(res);
-    });
+    var origHost = String(base.hostname).toLowerCase();
+    var current = null;
+    var chunks = [];
+    var size = 0;
+    var tooBig = false;
 
-    up.setTimeout(timeoutMs, function () { timedOut = true; up.abort(); });
-    up.on('error', function (e) {
-      if (res.headersSent) return res.end();
-      sendJson(res, timedOut ? 504 : 502, { message: timedOut ? 'Seerr timed out' : 'Cannot reach Seerr: ' + (e && e.code ? e.code : e) });
+    function emptyBody() { return Buffer.alloc ? Buffer.alloc(0) : new Buffer(0); }
+
+    function fail(message) { sendJson(res, 502, { message: message }); }
+
+    // Follow a redirect, but only within the same host: the API key must not leave the Seerr server.
+    function follow(code, location, from, method, body, hops) {
+      if (hops >= MAX_REDIRECTS) return fail('Seerr redirected too many times. Check the URL.');
+      var next;
+      try {
+        var abs = urlLib.parse(urlLib.resolve(from.protocol + '//' + from.hostname + (from.port ? ':' + from.port : '') + from.path, location));
+        next = parseBase(abs.protocol + '//' + abs.host);
+        if (next) next.path = abs.path;
+      } catch (e) { next = null; }
+      if (!next) return fail('Seerr sent a redirect that could not be followed.');
+      if (String(next.hostname).toLowerCase() !== origHost) {
+        return fail('Seerr redirected to a different address (' + next.protocol + '//' + next.hostname + (next.port ? ':' + next.port : '') + '). Use that URL instead.');
+      }
+      var nextMethod = method;
+      var nextBody = body;
+      if (code === 303 && method !== 'GET') { nextMethod = 'GET'; nextBody = emptyBody(); }
+      forward({ protocol: next.protocol, hostname: next.hostname, port: next.port, path: next.path }, nextMethod, nextBody, hops + 1);
+    }
+
+    function forward(target, method, body, hops) {
+      var h = {};
+      Object.keys(headers).forEach(function (k) { h[k] = headers[k]; });
+      if (body.length) h['content-length'] = body.length; else delete h['content-type'];
+
+      var timedOut = false;
+      var lib = target.protocol === 'https:' ? https : http;
+      var up;
+      try {
+        up = lib.request({
+          hostname: target.hostname,
+          port: target.port,
+          path: target.path,
+          method: method,
+          headers: h
+        }, function (ures) {
+          var code = ures.statusCode;
+          if (REDIRECT_CODES.indexOf(code) !== -1 && ures.headers.location) {
+            ures.resume();
+            return follow(code, ures.headers.location, target, method, body, hops);
+          }
+          setCors(res);
+          var out = {};
+          if (ures.headers['content-type']) out['Content-Type'] = ures.headers['content-type'];
+          res.writeHead(code, out);
+          ures.pipe(res);
+        });
+      } catch (e) {
+        return fail('Cannot reach Seerr: bad address');
+      }
+      current = up;
+      up.setTimeout(timeoutMs, function () { timedOut = true; up.abort(); });
+      up.on('error', function (e) {
+        if (res.headersSent) return res.end();
+        sendJson(res, timedOut ? 504 : 502, { message: timedOut ? 'Seerr timed out' : 'Cannot reach Seerr: ' + (e && e.code ? e.code : e) });
+      });
+      up.end(body);
+    }
+
+    req.on('aborted', function () { if (current) current.abort(); });
+    req.on('data', function (c) {
+      if (tooBig) return;
+      size += c.length;
+      if (size > MAX_PROXY_BODY) {
+        tooBig = true;
+        chunks = [];
+        return sendJson(res, 413, { message: 'Request too large' });
+      }
+      chunks.push(c);
     });
-    req.on('aborted', function () { up.abort(); });
-    req.pipe(up);
+    req.on('end', function () {
+      if (tooBig) return;
+      forward({ protocol: base.protocol, hostname: base.hostname, port: base.port, path: base.prefix + '/' + rest }, req.method, Buffer.concat(chunks), 0);
+    });
   }
 }
 
