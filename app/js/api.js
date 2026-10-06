@@ -18,6 +18,7 @@
     if (status === 401 || status === 403) return new ApiError('auth', 'Seerr rejected the API key.', status);
     if (status === 404) return new ApiError('notfound', 'Not found on Seerr.', status);
     if (status === 409) return new ApiError('conflict', 'Already requested.', status);
+    if (status === 502 || status === 504) return new ApiError('network', 'Cannot reach Seerr. Check the URL and network.', status);
     return new ApiError('http', 'Seerr returned an error (' + status + ').', status);
   }
 
@@ -56,13 +57,16 @@
   }
 
   function createClient(cfg) {
-    var base = normalizeBase(cfg.baseUrl) + '/api/v1';
+    var seerrBase = normalizeBase(cfg.baseUrl);
+    var proxy = cfg.proxyUrl ? String(cfg.proxyUrl).replace(/\/+$/, '') : null;
+    var base = proxy ? proxy + '/proxy/api/v1' : seerrBase + '/api/v1';
     var key = String(cfg.apiKey || '').trim();
     var timeoutMs = cfg.timeoutMs || 10000;
     var doFetch = cfg.fetch || function (u, o) { return fetch(u, o); };
 
     function request(method, path, body) {
       var init = { method: method, headers: { 'X-Api-Key': key, 'Accept': 'application/json' } };
+      if (proxy) init.headers['X-Seerr-Url'] = seerrBase;
       if (body !== undefined) {
         init.headers['Content-Type'] = 'application/json';
         init.body = JSON.stringify(body);
@@ -141,8 +145,35 @@
     };
   }
 
+  function probeProxy(proxyUrl, opts) {
+    opts = opts || {};
+    var attempts = opts.attempts || 6;
+    var delayMs = opts.delayMs === undefined ? 500 : opts.delayMs;
+    var perTry = opts.timeoutMs || 1500;
+    var doFetch = opts.fetch || function (u, o) { return fetch(u, o); };
+    var url = String(proxyUrl).replace(/\/+$/, '') + '/health';
+
+    function once() {
+      var timer;
+      var timeout = new Promise(function (resolve) { timer = setTimeout(function () { resolve(false); }, perTry); });
+      var call = Promise.resolve().then(function () { return doFetch(url); }).then(function (res) {
+        if (!res.ok) return false;
+        return res.json().then(function (j) { return !!(j && j.ok === true); });
+      }).catch(function () { return false; });
+      return Promise.race([call, timeout]).then(function (v) { clearTimeout(timer); return v; });
+    }
+
+    function attempt(n) {
+      return once().then(function (ok) {
+        if (ok || n >= attempts) return ok;
+        return new Promise(function (r) { setTimeout(r, delayMs); }).then(function () { return attempt(n + 1); });
+      });
+    }
+    return attempt(1);
+  }
+
   return {
     STATUS: STATUS, ApiError: ApiError, normalizeBase: normalizeBase,
-    createClient: createClient, statusLabel: statusLabel, canRequest: canRequest
+    createClient: createClient, probeProxy: probeProxy, statusLabel: statusLabel, canRequest: canRequest
   };
 });
