@@ -1,5 +1,6 @@
 (function (w) {
   var SR = w.SR;
+  var PROXY_URL = 'http://127.0.0.1:8765';
   var store = SR.store.createStore();
   var cfg = store.load();
 
@@ -8,11 +9,16 @@
     nav: SR.nav,
     store: store,
     cfg: cfg,
-    client: cfg ? SR.api.createClient(cfg) : null,
+    proxyUrl: null,
+    client: null,
     searchState: { text: '', items: [], focusIndex: -1 }
   };
   var views = { setup: SR.viewSetup, search: SR.viewSearch, detail: SR.viewDetail };
   var current = null;
+
+  ctx.makeClient = function (c) {
+    return SR.api.createClient({ baseUrl: c.baseUrl, apiKey: c.apiKey, proxyUrl: ctx.proxyUrl });
+  };
 
   ctx.show = function (name, arg) {
     if (current) current.destroy();
@@ -25,7 +31,7 @@
 
   ctx.onSaved = function (newCfg) {
     ctx.cfg = newCfg;
-    ctx.client = SR.api.createClient(newCfg);
+    ctx.client = ctx.makeClient(newCfg);
     store.save(newCfg);
     ctx.searchState = { text: '', items: [], focusIndex: -1 };
     ctx.show('search');
@@ -44,5 +50,13 @@
 
   SR.nav.init();
   if (!store.isPersistent()) SR.toast('Settings cannot be saved on this device.', 'error');
-  ctx.show(cfg ? 'search' : 'setup');
+
+  // On a TV the TizenBrew service may still be starting, so retry; on desktop probe once.
+  ctx.root.appendChild(SR.h('div', { 'class': 'message', text: 'Starting...' }));
+  SR.api.probeProxy(PROXY_URL, { attempts: w.tizen ? 8 : 1 }).then(function (ok) {
+    ctx.proxyUrl = ok ? PROXY_URL : null;
+    ctx.client = cfg ? ctx.makeClient(cfg) : null;
+    SR.clear(ctx.root);
+    ctx.show(cfg ? 'search' : 'setup');
+  });
 })(window);

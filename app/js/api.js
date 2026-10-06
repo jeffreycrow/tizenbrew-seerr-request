@@ -61,7 +61,7 @@
     var proxy = cfg.proxyUrl ? String(cfg.proxyUrl).replace(/\/+$/, '') : null;
     var base = proxy ? proxy + '/proxy/api/v1' : seerrBase + '/api/v1';
     var key = String(cfg.apiKey || '').trim();
-    var timeoutMs = cfg.timeoutMs || 10000;
+    var timeoutMs = cfg.timeoutMs || 30000;
     var doFetch = cfg.fetch || function (u, o) { return fetch(u, o); };
 
     function request(method, path, body) {

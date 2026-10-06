@@ -42,7 +42,7 @@ function pathAllowed(pathOnly) {
 }
 
 function createProxyServer(opts) {
-  var timeoutMs = (opts && opts.timeoutMs) || 15000;
+  var timeoutMs = (opts && opts.timeoutMs) || 30000;
 
   return http.createServer(function (req, res) {
     if (req.method === 'OPTIONS') {

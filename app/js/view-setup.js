@@ -41,7 +41,7 @@
       if (!apiKey) { msgEl.textContent = 'Enter your API key.'; return; }
       busy = true;
       msgEl.textContent = 'Connecting...';
-      SR.api.createClient({ baseUrl: url, apiKey: apiKey }).getMe().then(function () {
+      ctx.makeClient({ baseUrl: url, apiKey: apiKey }).getMe().then(function () {
         busy = false;
         ctx.onSaved({ baseUrl: url, apiKey: apiKey });
       }, function (err) {

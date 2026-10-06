@@ -18,10 +18,13 @@ const send = (res, code, body) => {
 };
 
 http.createServer((req, res) => {
-  res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Headers', 'x-api-key, content-type, accept');
-  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-  if (req.method === 'OPTIONS') return send(res, 204);
+  const NO_CORS = !!process.env.MOCK_NO_CORS; // behave like the real Seerr: no CORS headers, preflight 405
+  if (!NO_CORS) {
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Allow-Headers', 'x-api-key, content-type, accept');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+  }
+  if (req.method === 'OPTIONS') return send(res, NO_CORS ? 405 : 204);
   const url = new URL(req.url, 'http://x');
   if (req.headers['x-api-key'] !== KEY) return send(res, 403, { message: 'bad key' });
   const p = url.pathname;
