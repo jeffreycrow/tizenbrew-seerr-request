@@ -1,6 +1,6 @@
 {
   "name": "tizenbrew-seerr-request",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "Search Seerr and request movies/TV from a Samsung TV (TizenBrew module).",
   "packageType": "app",
   "appName": "Seerr Request",

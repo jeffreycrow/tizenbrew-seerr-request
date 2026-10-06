@@ -63,7 +63,7 @@ var SETUP_PAGE = [
   'button{margin-top:24px;width:100%;font-size:20px;padding:14px;border:0;border-radius:8px;background:#e50914;color:#fff}</style></head><body>',
   '<h2>Seerr Request setup</h2>',
   '<form method="post" action="/submit">',
-  '<label for="url">Seerr URL</label><input id="url" name="url" placeholder="http://192.168.1.10:5055" autocapitalize="none" autocorrect="off" spellcheck="false">',
+  '<label for="url">Seerr URL</label><input id="url" name="url" placeholder="192.168.1.10:5055" autocapitalize="none" autocorrect="off" spellcheck="false">',
   '<label for="key">API key</label><textarea id="key" name="key" rows="3" autocapitalize="none" autocorrect="off" spellcheck="false"></textarea>',
   '<label for="pin">PIN shown on your TV</label><input id="pin" name="pin" inputmode="numeric" maxlength="6" autocomplete="off">',
   '<button type="submit">Send to TV</button></form></body></html>'
@@ -146,8 +146,10 @@ function createPairing(opts) {
       return sendNote(res, 403, 'Wrong PIN. Check your TV and try again.');
     }
     var url = String(f.url || '').trim();
+    // phones people type "192.168.1.10:5055": add the scheme the way the page's normalizeBase does
+    if (url && !/^[a-z][a-z0-9+.\-]*:\/\//i.test(url)) url = 'http://' + url;
     var key = String(f.key || '').trim();
-    if (!parseBase(url)) return sendNote(res, 400, 'That Seerr URL does not look right. Include http:// and the port.');
+    if (!parseBase(url)) return sendNote(res, 400, 'Could not read that Seerr URL. Example: http://192.168.1.10:5055');
     if (!key || key.length > SETUP_MAX_KEY) return sendNote(res, 400, 'The API key is missing or too long.');
     s.config = { baseUrl: url, apiKey: key };
     sendNote(res, 200, 'Done! Your TV is connecting. You can close this page.');

@@ -6,8 +6,8 @@ Search [Seerr](https://docs.seerr.dev) from your Samsung TV remote and request m
 
 TizenBrew loads modules from jsDelivr, so the module must be public first:
 
-1. Push this repo to a public GitHub repo and create a version tag, e.g. `git tag v0.3.0 && git push --tags`.
-2. In TizenBrew add the module as `gh/<user>/<repo>` (or `gh/<user>/<repo>@v0.3.0` to pin the tag; jsDelivr caches branch refs for hours, a tag avoids stale files). An npm package works too: `npm/<package>`.
+1. Push this repo to a public GitHub repo and create a version tag, e.g. `git tag v0.3.1 && git push --tags`.
+2. In TizenBrew add the module as `gh/<user>/<repo>` (or `gh/<user>/<repo>@v0.3.1` to pin the tag; jsDelivr caches branch refs for hours, a tag avoids stale files). An npm package works too: `npm/<package>`.
 3. Launch **Seerr Request**. TizenBrew starts the module's service (`service.js`) automatically.
 
 If the service crashed, TizenBrew's module settings show the service status and error.
@@ -21,7 +21,7 @@ Seerr sends no CORS headers, so a web page on the TV cannot call it directly. `s
 An API key is about 60 characters, so use **Set up from phone** (the button is focused on first run):
 
 1. The TV shows one or more addresses like `http://192.168.1.50:8766` and a 6-digit PIN.
-2. On a phone on the same network, open that address, paste your Seerr URL (include `http://` and the port) and API key (Seerr > Settings > General), type the PIN, and send.
+2. On a phone on the same network, open that address, paste your Seerr URL (e.g. `192.168.1.10:5055`; `http://` is added if you leave it off) and API key (Seerr > Settings > General), type the PIN, and send.
 3. The TV connects and takes you to search. The pairing page closes right after.
 
 Pairing is deliberately narrow: it is open only while the TV shows the PIN, accepts one submission, closes after 5 wrong PINs or 10 minutes, and the key crosses your home network once over plain HTTP. Press **Back** on the TV to cancel it.

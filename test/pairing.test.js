@@ -102,7 +102,7 @@ test('invalid url, bad port, non-http scheme, or empty key are a 400 and store n
   const p = setup(t);
   const { port, pin } = await startP(p);
   const bads = [
-    { url: 'notaurl', key: 'K' }, { url: 'ftp://x', key: 'K' }, { url: 'http://127.0.0.1:99999', key: 'K' },
+    { url: 'ftp://x', key: 'K' }, { url: 'http://', key: 'K' }, { url: 'http://127.0.0.1:99999', key: 'K' }, { url: '127.0.0.1:99999', key: 'K' },
     { url: 'http://s:5055', key: '   ' }, { url: 'http://s:5055', key: '' }, { url: '', key: 'K' },
     { url: 'http://s:5055', key: 'k'.repeat(513) }
   ];
@@ -241,4 +241,21 @@ test('pin is six digits and the form allows six', async (t) => {
   assert.equal(pin.length, 6);
   const page = (await call(port, { path: '/' })).text;
   assert.ok(page.indexOf('maxlength="6"') !== -1);
+});
+
+test('a url typed without a scheme (as on a phone) gets http:// added', async (t) => {
+  const p = setup(t);
+  const { port, pin } = await startP(p);
+  const r = await submit(port, { url: ' 192.168.1.10:5055 ', key: 'K', pin });
+  assert.equal(r.status, 200);
+  assert.deepEqual(p.poll(), { status: 'done', baseUrl: 'http://192.168.1.10:5055', apiKey: 'K' });
+});
+
+test('uppercase scheme, bare hostname and https urls are accepted; scheme is kept', async (t) => {
+  for (const [typed, stored] of [['HTTP://seerr.lan:5055', 'HTTP://seerr.lan:5055'], ['seerr', 'http://seerr'], ['https://seerr.example.com', 'https://seerr.example.com']]) {
+    const p = setup(t);
+    const { port, pin } = await startP(p);
+    assert.equal((await submit(port, { url: typed, key: 'K', pin })).status, 200, typed);
+    assert.equal(p.poll().baseUrl, stored, typed);
+  }
 });
