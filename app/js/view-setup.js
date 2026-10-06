@@ -24,8 +24,8 @@
     function paint() {
       urlVal.textContent = fields.url;
       keyVal.textContent = fields.key;
-      urlEl.className = 'field' + (active === 'url' ? ' active' : '');
-      keyEl.className = 'field' + (active === 'key' ? ' active' : '');
+      urlEl.classList.toggle('active', active === 'url');
+      keyEl.classList.toggle('active', active === 'key');
     }
 
     function select(name) {
